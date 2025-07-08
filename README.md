@@ -2,6 +2,37 @@
 
 A secure terminal interface for Claude Desktop with comprehensive security controls, audit logging, and configurable permissions.
 
+---
+
+## 🆕 What's New in v1.0.5
+
+- **Version:** Upgraded from 1.0.4 → 1.0.5
+- **Timeout:** 30-second timeout configured (`timeout_ms: 30000`)
+- **Output Limits:** 1000 line limit (`max_lines: 1000`)
+- **Directory Access:** Configurable allowed directories
+- **Previously Missing Commands Now Work:**
+  - `echo` now included in allowed commands
+  - Pipe operations (e.g., `echo "Testing pipe functionality" | wc -w`)
+  - Command chaining supported
+- **Enhanced Security & Functionality:**
+  - Improved path restrictions
+  - `jq` support for JSON processing
+  - Proper timeout management in responses
+  - Command history tracking and searching
+- **Key Functional Tests Passed:**
+  - `echo "Testing pipe functionality" | wc -w` → Returns 3
+  - `echo '{"name": "test", "value": 42}' | jq '.name'` → Returns "test"
+  - `df -h` and `top -l 2 -s 1` work as expected
+  - Command history search works
+- **Security:**
+  - Maintains allow/block lists
+  - Path access restrictions and directory traversal protection
+  - Timeout protection
+- **Performance:**
+  - Fast execution, clean error handling, efficient command history
+
+---
+
 ## 🚀 Quick Start
 
 ```bash
@@ -77,7 +108,7 @@ Ask Claude to:
 The extension automatically prompts for configuration on first use:
 
 - **Allowed Directories**: Where commands can be executed
-- **Timeout**: Maximum execution time (5-300 seconds)  
+- **Timeout**: Maximum execution time (5-300 seconds)
 - **Output Limit**: Maximum output lines (100-10,000)
 - **Audit Logging**: Enable/disable command logging
 - **Custom Commands**: Additional commands beyond defaults

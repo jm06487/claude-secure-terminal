@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2025-07-08
+
+### 🆕 What's New
+- Version upgraded from 1.0.4 → 1.0.5
+- 30-second timeout configured (timeout_ms: 30000)
+- 1000 line output limit (max_lines: 1000)
+- Configurable allowed directories
+- `echo` now included in allowed commands
+- Pipe operations and command chaining now supported
+- Improved path restrictions and directory access controls
+- `jq` support for JSON processing
+- Proper timeout management in responses
+- Command history tracking and searching
+- Key functional tests passed (echo, pipes, jq, df, top, command history)
+- Maintains allow/block lists, path access restrictions, directory traversal protection, timeout protection
+- Fast execution, clean error handling, efficient command history
+
 ## [1.0.4] - 2025-07-07 - Initial Public Release
 
 ### 🎉 **First Public Release**
@@ -46,7 +63,7 @@ This is the initial public release of the Claude Secure Terminal DXT extension. 
 ### 🛠️ **Available Tools**
 
 1. **`execute_command`** - Execute terminal commands safely with security restrictions
-2. **`list_allowed_commands`** - Display all currently allowed and blocked commands  
+2. **`list_allowed_commands`** - Display all currently allowed and blocked commands
 3. **`get_terminal_status`** - Show extension configuration and security status
 4. **`search_command_history`** - Search through command execution logs
 
@@ -95,7 +112,7 @@ This is the initial public release of the Claude Secure Terminal DXT extension. 
 ### 🎯 **Target Use Cases**
 
 - **Development Workflows**: Git management, dependency installation, process monitoring
-- **System Administration**: System status checking, log analysis, resource monitoring  
+- **System Administration**: System status checking, log analysis, resource monitoring
 - **Debugging**: Environment diagnosis, error investigation, performance analysis
 - **Container Management**: Docker/Podman status, container operations
 - **Security Auditing**: Command history analysis, security compliance checking

@@ -3,7 +3,7 @@
   "publisher": "claude-terminal-team",
   "name": "claude-secure-terminal",
   "display_name": "Claude Secure Terminal",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A secure terminal interface for Claude Desktop with comprehensive security controls, audit logging, and configurable permissions.",
   "long_description": "Execute system commands safely through Claude Desktop with enterprise-grade security features including command whitelisting, directory restrictions, output limiting, execution timeouts, and comprehensive audit logging. Perfect for development workflows, system administration, and debugging while maintaining complete security and compliance.",
   "author": {
