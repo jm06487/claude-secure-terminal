@@ -1,0 +1,54 @@
+name: Security & Quality Checks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: Security & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: [34mCheckout repository[0m
+        uses: actions/checkout@v4
+
+      - name: [34mSet up Node.js[0m
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: [34mInstall dependencies[0m
+        run: npm ci
+
+      - name: [34mRun ESLint (code style & quality)[0m
+        run: npx eslint .
+
+      - name: [34mRun npm audit (dependency security)[0m
+        run: npm audit --audit-level=moderate
+
+      - name: [34mRun Snyk for open source dependency scanning[0m
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: test
+
+      - name: [34mScan for secrets with truffleHog[0m
+        uses: trufflesecurity/trufflehog@v3.67.3
+        with:
+          path: .
+
+      - name: [34mCheck for sensitive certificate files[0m
+        run: |
+          if ls certs/*.key certs/*.p12 certs/*.crt 1> /dev/null 2>&1; then
+            echo "\033[31mError: Sensitive certificate files found in certs/!\033[0m" && exit 1
+          fi
+
+      - name: [34mShow summary[0m
+        run: echo "✅ Security & quality checks passed for public release."
