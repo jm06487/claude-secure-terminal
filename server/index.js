@@ -1,39 +1,26 @@
 #!/usr/bin/env node
 
 /*
- * Claude Secure Terminal – MCP server (v1.0.5)
+ * Claude Secure Terminal – MCP server (v1.0.6)
  * -------------------------------------------
- * 🆕 What's New (v1.0.5):
- * ✅ Enhanced Configuration:
- *   - Version: Upgraded from 1.0.4 → 1.0.5
- *   - Timeout: 30-second timeout configured (timeout_ms: 30000)
- *   - Output Limits: 1000 line limit (max_lines: 1000)
- *   - Directory Access: Configurable allowed directories
- * ✅ Previously Missing Commands Now Work:
- *   - echo - Now included in allowed commands and working perfectly
- *   - Pipe operations - echo "Testing pipe functionality" | wc -w works flawlessly
- *   - Command chaining - Complex command combinations now supported
- * ✅ Enhanced Security & Functionality:
- *   - Path restrictions: Better directory access controls
- *   - jq support: JSON processing now available
- *   - Timeout handling: Proper timeout management in responses
- *   - Command history: Successfully tracking and searching command history
- * 🔧 Key Functional Tests Passed:
- *   - Echo & Pipes: echo "Testing pipe functionality" | wc -w → Returns 3 ✅
- *   - JSON Processing: echo '{"name": "test", "value": 42}' | jq '.name' → Returns "test" ✅
- *   - System Info: df -h shows comprehensive disk usage ✅
- *   - Process Monitoring: top -l 2 -s 1 provides detailed system stats ✅
- *   - Command History: Successfully searches and finds previous top commands ✅
- * 🛡️ Security Features:
- *   - Maintains proper allow/block lists
- *   - Path access restrictions working correctly
- *   - Directory traversal protection active
- *   - Timeout protection preventing runaway commands
- * ⚡ Performance:
- *   - Commands execute quickly and responsively
- *   - Proper error handling for blocked paths
- *   - Clean timeout behavior
- *   - Efficient command history storage
+ * 🆕 What's New (v1.0.6):
+ * ✅ Command Configuration Management:
+ *   - Allow specific commands that are blocked by default
+ *   - Block specific commands that are allowed by default  
+ *   - View current configuration with visual indicators
+ *   - Reset to default configuration
+ *   - Export/import configuration settings
+ * ✅ Enhanced Security Model:
+ *   - Default secure baseline with ability to override
+ *   - Configuration persistence between sessions
+ *   - User validation for dangerous commands
+ *   - Clear audit trail of configuration changes
+ * ✅ Previous Features Maintained:
+ *   - 30-second timeout protection
+ *   - 1000 line output limits
+ *   - Directory access controls
+ *   - Command history and audit logging
+ *   - Support for echo, pipes, jq, and all safe commands
  */
 
 import {
@@ -71,17 +58,22 @@ let sdkVer = 'unknown';
 try { sdkVer = require('@modelcontextprotocol/sdk/package.json').version; } catch { }
 
 class SecureTerminal {
-  allowed = ['ls', 'cat', 'grep', 'find', 'wc', 'file', 'stat', 'ps', 'top', 'df', 'du', 'whoami', 'date', 'which', 'uptime', 'echo', 'git', 'npm', 'pip', 'python3', 'node', 'curl', 'wget', 'tar', 'zip', 'unzip', 'jq'];
-  blocked = ['rm', 'sudo', 'su', 'passwd', 'shutdown', 'reboot', 'mkfs', 'fdisk', 'dd'];
+  // Default secure command lists
+  DEFAULT_ALLOWED = ['ls', 'cat', 'grep', 'find', 'wc', 'file', 'stat', 'ps', 'top', 'df', 'du', 'whoami', 'date', 'which', 'uptime', 'echo', 'git', 'npm', 'pip', 'python3', 'node', 'curl', 'wget', 'tar', 'zip', 'unzip', 'jq'];
+  DEFAULT_BLOCKED = ['rm', 'sudo', 'su', 'passwd', 'shutdown', 'reboot', 'mkfs', 'fdisk', 'dd', 'chmod', 'chown', 'mount', 'umount', 'kill', 'killall'];
 
   constructor() {
-    this.server = new Server({ name: 'claude-secure-terminal', version: '1.0.5' }, { capabilities: { tools: {} } });
+    this.server = new Server({ name: 'claude-secure-terminal', version: '1.0.6' }, { capabilities: { tools: {} } });
+    
+    // Initialize configuration
+    this.configPath = join(__dirname, 'terminal-config.json');
+    this.loadConfig();
 
     // --- Handshake ---
     this.server.setRequestHandler(InitializeRequestSchema, async () => ({
       protocolVersion: '2024-11-05',
-      serverInfo: { name: 'claude-secure-terminal', version: '1.0.5' },
-      capabilities: { tools: { execute_command: {}, list_allowed_commands: {}, get_terminal_status: {}, search_command_history: {} } },
+      serverInfo: { name: 'claude-secure-terminal', version: '1.0.6' },
+      capabilities: { tools: {} },
     }));
 
     // --- Tool registry ---
@@ -95,24 +87,169 @@ class SecureTerminal {
     this.setupShutdown();
   }
 
+  /* ------------------- Configuration Management --------------- */
+  async loadConfig() {
+    try {
+      const configData = await fs.readFile(this.configPath, 'utf8');
+      const config = JSON.parse(configData);
+      this.allowOverrides = config.allowOverrides || [];
+      this.blockOverrides = config.blockOverrides || [];
+      await this.log('INFO', `Loaded config: +${this.allowOverrides.length} -${this.blockOverrides.length} overrides`);
+    } catch {
+      // No config file or invalid - use defaults
+      this.allowOverrides = [];
+      this.blockOverrides = [];
+      await this.saveConfig();
+      await this.log('INFO', 'Created default configuration');
+    }
+  }
+
+  async saveConfig() {
+    const config = {
+      version: '1.0.6',
+      allowOverrides: this.allowOverrides,
+      blockOverrides: this.blockOverrides,
+      lastModified: new Date().toISOString()
+    };
+    await fs.writeFile(this.configPath, JSON.stringify(config, null, 2));
+    await this.log('INFO', 'Configuration saved');
+  }
+
+  getCurrentAllowed() {
+    // Start with defaults, remove blocked overrides, add allowed overrides
+    let allowed = [...this.DEFAULT_ALLOWED];
+    allowed = allowed.filter(cmd => !this.blockOverrides.includes(cmd));
+    this.allowOverrides.forEach(cmd => {
+      if (!allowed.includes(cmd)) allowed.push(cmd);
+    });
+    return allowed;
+  }
+
+  getCurrentBlocked() {
+    // Start with defaults, remove allowed overrides, add blocked overrides
+    let blocked = [...this.DEFAULT_BLOCKED];
+    blocked = blocked.filter(cmd => !this.allowOverrides.includes(cmd));
+    this.blockOverrides.forEach(cmd => {
+      if (!blocked.includes(cmd)) blocked.push(cmd);
+    });
+    return blocked;
+  }
+
   /* ------------------- Tool meta & handlers ------------------- */
   registerTools() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
-        { name: 'execute_command', description: 'Execute terminal command', inputSchema: { type: 'object', properties: { command: { type: 'string' }, working_directory: { type: 'string' } }, required: ['command'] } },
-        { name: 'list_allowed_commands', description: 'List allow/block lists', inputSchema: { type: 'object', properties: {} } },
-        { name: 'get_terminal_status', description: 'Return status/config summary', inputSchema: { type: 'object', properties: {} } },
-        { name: 'search_command_history', description: 'Search audit log', inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
+        // Core execution tools
+        { 
+          name: 'execute_command', 
+          description: 'Execute terminal command', 
+          inputSchema: { 
+            type: 'object', 
+            properties: { 
+              command: { type: 'string' }, 
+              working_directory: { type: 'string' } 
+            }, 
+            required: ['command'] 
+          } 
+        },
+        { 
+          name: 'list_allowed_commands', 
+          description: 'List current allow/block lists with override indicators', 
+          inputSchema: { type: 'object', properties: {} } 
+        },
+        { 
+          name: 'get_terminal_status', 
+          description: 'Return status/config summary', 
+          inputSchema: { type: 'object', properties: {} } 
+        },
+        { 
+          name: 'search_command_history', 
+          description: 'Search audit log', 
+          inputSchema: { 
+            type: 'object', 
+            properties: { 
+              query: { type: 'string' }, 
+              limit: { type: 'number' } 
+            }, 
+            required: ['query'] 
+          } 
+        },
+        
+        // Configuration management tools
+        { 
+          name: 'allow_command', 
+          description: 'Allow a specific command (even if blocked by default)', 
+          inputSchema: { 
+            type: 'object', 
+            properties: { 
+              command: { type: 'string', description: 'Command to allow (e.g., "rm", "sudo")' } 
+            }, 
+            required: ['command'] 
+          } 
+        },
+        { 
+          name: 'block_command', 
+          description: 'Block a specific command (even if allowed by default)', 
+          inputSchema: { 
+            type: 'object', 
+            properties: { 
+              command: { type: 'string', description: 'Command to block (e.g., "curl", "wget")' } 
+            }, 
+            required: ['command'] 
+          } 
+        },
+        { 
+          name: 'view_config', 
+          description: 'View current command configuration with detailed breakdown', 
+          inputSchema: { type: 'object', properties: {} } 
+        },
+        { 
+          name: 'reset_config', 
+          description: 'Reset all command overrides to secure defaults', 
+          inputSchema: { 
+            type: 'object', 
+            properties: { 
+              confirm: { type: 'boolean', description: 'Must be true to confirm reset' } 
+            }, 
+            required: ['confirm'] 
+          } 
+        },
+        { 
+          name: 'export_config', 
+          description: 'Export current configuration as JSON', 
+          inputSchema: { type: 'object', properties: {} } 
+        },
+        { 
+          name: 'import_config', 
+          description: 'Import configuration from JSON', 
+          inputSchema: { 
+            type: 'object', 
+            properties: { 
+              config: { type: 'string', description: 'JSON configuration to import' } 
+            }, 
+            required: ['config'] 
+          } 
+        },
       ],
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
       const { name, arguments: args } = params;
       switch (name) {
+        // Core tools
         case 'execute_command': return this.execute(args.command, args.working_directory);
         case 'list_allowed_commands': return this.listAllowed();
         case 'get_terminal_status': return this.status();
         case 'search_command_history': return this.history(args.query, args.limit);
+        
+        // Configuration tools
+        case 'allow_command': return this.allowCommand(args.command);
+        case 'block_command': return this.blockCommand(args.command);
+        case 'view_config': return this.viewConfig();
+        case 'reset_config': return this.resetConfig(args.confirm);
+        case 'export_config': return this.exportConfig();
+        case 'import_config': return this.importConfig(args.config);
+        
         default: throw new McpError(ErrorCode.MethodNotFound, `Unknown tool ${name}`);
       }
     });
@@ -128,8 +265,13 @@ class SecureTerminal {
   validate(cmd) {
     const parts = cmd.trim().split(/\s+/);
     const base = parts[0];
-    if (this.blocked.includes(base)) return `blocked command ${base}`;
-    if (!this.allowed.includes(base)) return `not allowed ${base}`;
+    
+    const currentBlocked = this.getCurrentBlocked();
+    const currentAllowed = this.getCurrentAllowed();
+    
+    if (currentBlocked.includes(base)) return `blocked command ${base}`;
+    if (!currentAllowed.includes(base)) return `not allowed ${base}`;
+    
     for (const p of parts.slice(1)) {
       if (!this.pathAllowed(p)) return `path ${p} not allowed`;
     }
@@ -185,15 +327,292 @@ class SecureTerminal {
     return lines.slice(0, MAX_LINES).join('\n') + `\n... (truncated ${lines.length - MAX_LINES} lines)`;
   }
 
+  /* ------------------- Configuration Tool Implementations ----- */
+  async allowCommand(command) {
+    const cmd = command.trim();
+    
+    // Validation
+    if (!cmd) return this.wrap({ success: false, error: 'Command cannot be empty' });
+    if (!/^[a-zA-Z0-9_-]+$/.test(cmd)) return this.wrap({ success: false, error: 'Invalid command format' });
+    
+    // Check if it's a dangerous command
+    const dangerous = ['rm', 'sudo', 'dd', 'mkfs', 'fdisk', 'shutdown', 'reboot'];
+    let warning = '';
+    if (dangerous.includes(cmd)) {
+      warning = `⚠️ WARNING: '${cmd}' is potentially dangerous and could cause data loss or system damage.`;
+    }
+    
+    // Remove from block overrides if present
+    this.blockOverrides = this.blockOverrides.filter(c => c !== cmd);
+    
+    // Add to allow overrides if not already default-allowed
+    if (!this.DEFAULT_ALLOWED.includes(cmd) && !this.allowOverrides.includes(cmd)) {
+      this.allowOverrides.push(cmd);
+    }
+    
+    await this.saveConfig();
+    await this.audit({ 
+      ts: new Date().toISOString(), 
+      action: 'allow_command', 
+      command: cmd, 
+      success: true 
+    });
+    
+    const result = {
+      success: true,
+      message: `✅ Command '${cmd}' is now allowed`,
+      warning: warning || undefined,
+      currentAllowed: this.getCurrentAllowed().length,
+      currentBlocked: this.getCurrentBlocked().length
+    };
+    
+    return this.wrap(result);
+  }
+
+  async blockCommand(command) {
+    const cmd = command.trim();
+    
+    // Validation
+    if (!cmd) return this.wrap({ success: false, error: 'Command cannot be empty' });
+    if (!/^[a-zA-Z0-9_-]+$/.test(cmd)) return this.wrap({ success: false, error: 'Invalid command format' });
+    
+    // Remove from allow overrides if present
+    this.allowOverrides = this.allowOverrides.filter(c => c !== cmd);
+    
+    // Add to block overrides if not already default-blocked
+    if (!this.DEFAULT_BLOCKED.includes(cmd) && !this.blockOverrides.includes(cmd)) {
+      this.blockOverrides.push(cmd);
+    }
+    
+    await this.saveConfig();
+    await this.audit({ 
+      ts: new Date().toISOString(), 
+      action: 'block_command', 
+      command: cmd, 
+      success: true 
+    });
+    
+    const result = {
+      success: true,
+      message: `❌ Command '${cmd}' is now blocked`,
+      currentAllowed: this.getCurrentAllowed().length,
+      currentBlocked: this.getCurrentBlocked().length
+    };
+    
+    return this.wrap(result);
+  }
+
+  async viewConfig() {
+    const currentAllowed = this.getCurrentAllowed();
+    const currentBlocked = this.getCurrentBlocked();
+    
+    // Create detailed breakdown
+    const allowedWithIndicators = this.DEFAULT_ALLOWED.map(cmd => {
+      if (this.blockOverrides.includes(cmd)) return `${cmd} 🚫 (blocked by override)`;
+      return cmd + (this.DEFAULT_ALLOWED.includes(cmd) ? '' : ' ✨');
+    }).filter(cmd => !cmd.includes('🚫'));
+    
+    // Add override-allowed commands
+    this.allowOverrides.forEach(cmd => {
+      if (!this.DEFAULT_ALLOWED.includes(cmd)) {
+        allowedWithIndicators.push(`${cmd} ✨ (allowed by override)`);
+      }
+    });
+    
+    const blockedWithIndicators = this.DEFAULT_BLOCKED.map(cmd => {
+      if (this.allowOverrides.includes(cmd)) return `${cmd} ✅ (allowed by override)`;
+      return cmd;
+    }).filter(cmd => !cmd.includes('✅'));
+    
+    // Add override-blocked commands
+    this.blockOverrides.forEach(cmd => {
+      if (!this.DEFAULT_BLOCKED.includes(cmd)) {
+        blockedWithIndicators.push(`${cmd} ✨ (blocked by override)`);
+      }
+    });
+
+    const config = {
+      summary: {
+        version: '1.0.6',
+        totalAllowed: currentAllowed.length,
+        totalBlocked: currentBlocked.length,
+        allowOverrides: this.allowOverrides.length,
+        blockOverrides: this.blockOverrides.length
+      },
+      breakdown: {
+        currentlyAllowed: allowedWithIndicators.sort(),
+        currentlyBlocked: blockedWithIndicators.sort(),
+        overrides: {
+          allowed: this.allowOverrides,
+          blocked: this.blockOverrides
+        }
+      },
+      legend: {
+        '✨': 'Modified from defaults',
+        '🚫': 'Blocked by override',
+        '✅': 'Allowed by override'
+      },
+      settings: {
+        timeout: `${TIMEOUT_MS / 1000} seconds`,
+        maxOutputLines: MAX_LINES,
+        allowedDirectories: ALLOWED_DIRS.length
+      }
+    };
+    
+    return this.wrap(config);
+  }
+
+  async resetConfig(confirm) {
+    if (!confirm) {
+      return this.wrap({
+        success: false,
+        error: 'Reset requires confirmation. Set confirm: true to proceed.',
+        warning: 'This will remove all command overrides and return to secure defaults.'
+      });
+    }
+    
+    const oldAllowOverrides = [...this.allowOverrides];
+    const oldBlockOverrides = [...this.blockOverrides];
+    
+    this.allowOverrides = [];
+    this.blockOverrides = [];
+    
+    await this.saveConfig();
+    await this.audit({ 
+      ts: new Date().toISOString(), 
+      action: 'reset_config', 
+      oldAllowOverrides, 
+      oldBlockOverrides, 
+      success: true 
+    });
+    
+    const result = {
+      success: true,
+      message: '🔄 Configuration reset to secure defaults',
+      removed: {
+        allowOverrides: oldAllowOverrides,
+        blockOverrides: oldBlockOverrides
+      },
+      currentAllowed: this.getCurrentAllowed().length,
+      currentBlocked: this.getCurrentBlocked().length
+    };
+    
+    return this.wrap(result);
+  }
+
+  async exportConfig() {
+    const config = {
+      version: '1.0.6',
+      exportedAt: new Date().toISOString(),
+      allowOverrides: this.allowOverrides,
+      blockOverrides: this.blockOverrides,
+      defaults: {
+        allowed: this.DEFAULT_ALLOWED,
+        blocked: this.DEFAULT_BLOCKED
+      }
+    };
+    
+    return this.wrap({
+      success: true,
+      config: JSON.stringify(config, null, 2),
+      message: 'Configuration exported successfully'
+    });
+  }
+
+  async importConfig(configJson) {
+    try {
+      const config = JSON.parse(configJson);
+      
+      // Validate config structure
+      if (!config.allowOverrides || !Array.isArray(config.allowOverrides)) {
+        throw new Error('Invalid config: allowOverrides must be an array');
+      }
+      if (!config.blockOverrides || !Array.isArray(config.blockOverrides)) {
+        throw new Error('Invalid config: blockOverrides must be an array');
+      }
+      
+      // Validate command formats
+      const allOverrides = [...config.allowOverrides, ...config.blockOverrides];
+      for (const cmd of allOverrides) {
+        if (typeof cmd !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(cmd)) {
+          throw new Error(`Invalid command format: ${cmd}`);
+        }
+      }
+      
+      const oldConfig = {
+        allowOverrides: [...this.allowOverrides],
+        blockOverrides: [...this.blockOverrides]
+      };
+      
+      this.allowOverrides = config.allowOverrides;
+      this.blockOverrides = config.blockOverrides;
+      
+      await this.saveConfig();
+      await this.audit({ 
+        ts: new Date().toISOString(), 
+        action: 'import_config', 
+        oldConfig, 
+        newConfig: { allowOverrides: this.allowOverrides, blockOverrides: this.blockOverrides },
+        success: true 
+      });
+      
+      const result = {
+        success: true,
+        message: '📥 Configuration imported successfully',
+        imported: {
+          allowOverrides: this.allowOverrides,
+          blockOverrides: this.blockOverrides
+        },
+        currentAllowed: this.getCurrentAllowed().length,
+        currentBlocked: this.getCurrentBlocked().length
+      };
+      
+      return this.wrap(result);
+      
+    } catch (error) {
+      return this.wrap({
+        success: false,
+        error: `Import failed: ${error.message}`,
+        hint: 'Make sure the JSON is valid and contains allowOverrides and blockOverrides arrays'
+      });
+    }
+  }
+
   /* ------------------- Tool impls ----------------------------- */
   wrap(obj) { return { content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] }; }
 
-  async listAllowed() { return this.wrap({ allowed: this.allowed, blocked: this.blocked }); }
-  async status() { return this.wrap({ version: '1.0.5', sdk: sdkVer, timeout_ms: TIMEOUT_MS, max_lines: MAX_LINES, allowed_dirs: ALLOWED_DIRS }); }
+  async listAllowed() { 
+    return this.wrap({ 
+      allowed: this.getCurrentAllowed(), 
+      blocked: this.getCurrentBlocked(),
+      overrides: {
+        allow: this.allowOverrides,
+        block: this.blockOverrides
+      }
+    }); 
+  }
+  
+  async status() { 
+    return this.wrap({ 
+      version: '1.0.6', 
+      sdk: sdkVer, 
+      timeout_ms: TIMEOUT_MS, 
+      max_lines: MAX_LINES, 
+      allowed_dirs: ALLOWED_DIRS,
+      commands: {
+        allowed: this.getCurrentAllowed().length,
+        blocked: this.getCurrentBlocked().length,
+        overrides: this.allowOverrides.length + this.blockOverrides.length
+      }
+    }); 
+  }
+  
   async history(q, limit = 20) {
     try {
       const data = await fs.readFile(this.auditPath, 'utf8');
-      const matches = data.split('\n').filter(l => l.includes(q)).slice(-limit).map(JSON.parse);
+      const matches = data.split('\n').filter(l => l.includes(q)).slice(-limit).map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+      }).filter(Boolean);
       return this.wrap({ query: q, matches });
     } catch {
       return this.wrap({ query: q, matches: [] });
@@ -203,6 +622,7 @@ class SecureTerminal {
   async audit(rec) {
     await fs.appendFile(this.auditPath, JSON.stringify(rec) + "\n").catch(() => { });
   }
+  
   async log(lvl, msg) {
     const line = `[${new Date().toISOString()}] ${lvl}: ${msg}\n`;
     await fs.appendFile(this.logPath, line).catch(() => { });

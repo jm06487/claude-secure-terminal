@@ -3,9 +3,9 @@
   "publisher": "claude-terminal-team",
   "name": "claude-secure-terminal",
   "display_name": "Claude Secure Terminal",
-  "version": "1.0.5",
-  "description": "A secure terminal interface for Claude Desktop with comprehensive security controls, audit logging, and configurable permissions.",
-  "long_description": "Execute system commands safely through Claude Desktop with enterprise-grade security features including command whitelisting, directory restrictions, output limiting, execution timeouts, and comprehensive audit logging. Perfect for development workflows, system administration, and debugging while maintaining complete security and compliance.",
+  "version": "1.0.6",
+  "description": "A secure terminal interface for Claude Desktop with comprehensive security controls, audit logging, and configurable command management.",
+  "long_description": "Execute system commands safely through Claude Desktop with enterprise-grade security features including command whitelisting, directory restrictions, output limiting, execution timeouts, comprehensive audit logging, and flexible command configuration management. Features include the ability to allow/block specific commands, view detailed configuration, and export/import settings.",
   "author": {
     "name": "Claude Terminal Team",
     "email": "claude.secure.terminal@gmail.com",
@@ -22,7 +22,9 @@
     "cli",
     "shell",
     "bash",
-    "execution"
+    "execution",
+    "configuration",
+    "management"
   ],
   "updates": {
     "auto": false
@@ -40,7 +42,6 @@
         "MAX_OUTPUT_LINES": "${user_config.max_output_lines}",
         "TIMEOUT_SECONDS": "${user_config.timeout_seconds}",
         "LOG_ALL_COMMANDS": "${user_config.log_all_commands}",
-        "ADDITIONAL_COMMANDS": "${user_config.additional_commands}",
         "DEBUG_PROTOCOL": "false"
       }
     }
@@ -91,13 +92,6 @@
       "description": "Log all command executions for security audit purposes",
       "required": false,
       "default": true
-    },
-    "additional_commands": {
-      "type": "string",
-      "title": "Additional Allowed Commands",
-      "description": "Comma-separated list of additional commands to allow (beyond the default safe list)",
-      "required": false,
-      "default": ""
     }
   },
   "tools": [
@@ -107,7 +101,7 @@
     },
     {
       "name": "list_allowed_commands",
-      "description": "List all commands that are currently allowed to be executed"
+      "description": "List all commands that are currently allowed to be executed with override indicators"
     },
     {
       "name": "get_terminal_status",
@@ -116,6 +110,30 @@
     {
       "name": "search_command_history",
       "description": "Search through command execution history and logs"
+    },
+    {
+      "name": "allow_command",
+      "description": "Allow a specific command (even if blocked by default) - similar to Command Palette functionality"
+    },
+    {
+      "name": "block_command",
+      "description": "Block a specific command (even if allowed by default) - similar to Command Palette functionality"
+    },
+    {
+      "name": "view_config",
+      "description": "View current command configuration with detailed breakdown and visual indicators"
+    },
+    {
+      "name": "reset_config",
+      "description": "Reset all command overrides to secure defaults"
+    },
+    {
+      "name": "export_config",
+      "description": "Export current configuration as JSON for backup or sharing"
+    },
+    {
+      "name": "import_config",
+      "description": "Import configuration from JSON for quick setup"
     }
   ],
   "prompts": [
@@ -142,6 +160,14 @@
         "time_period"
       ],
       "text": "Perform a security audit of command execution history for the ${arguments.time_period} period. Review command logs, identify potential security issues, and provide recommendations."
+    },
+    {
+      "name": "configure_commands",
+      "description": "Configure allowed and blocked commands interactively",
+      "arguments": [
+        "action"
+      ],
+      "text": "Help configure the terminal command permissions. Action requested: ${arguments.action}. Use the configuration tools to view current settings, allow/block specific commands, or reset to defaults as needed."
     }
   ],
   "compatibility": {

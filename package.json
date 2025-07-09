@@ -1,6 +1,6 @@
 {
   "name": "claude-secure-terminal",
-  "version": "1.0.4",
+  "version": "1.0.6",
   "description": "Secure terminal interface for Claude Desktop",
   "license": "MIT",
   "type": "module",
